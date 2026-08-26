@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>简历投递</title>
+<style>
+  :root{ --brand:#2b6cee; --brand-d:#1f54c4; --bg:#f4f6fb; --card:#fff;
+         --line:#e3e8f2; --text:#1f2937; --sub:#6b7280; --ok:#16a34a; --err:#dc2626; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif;
+       background:var(--bg);color:var(--text);line-height:1.6;padding:18px 14px 40px}
+  .box{max-width:480px;margin:0 auto;background:var(--card);border:1px solid var(--line);
+       border-radius:16px;padding:22px;box-shadow:0 2px 10px rgba(20,40,80,.06)}
+  .co{color:var(--brand);font-weight:700;font-size:18px;text-align:center;margin:0 0 2px}
+  h1{font-size:20px;text-align:center;margin:0 0 4px}
+  .ref{background:#eef2fb;color:var(--brand-d);text-align:center;border-radius:10px;
+       padding:10px;font-weight:600;margin:14px 0 18px}
+  .ref b{color:var(--text)}
+  label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px}
+  label .req{color:var(--err)}
+  input[type=text],input[type=email],input[type=tel],textarea,input[type=file]{
+       width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+       font-size:15px;font-family:inherit;outline:none;background:#fff}
+  input:focus,textarea:focus{border-color:var(--brand)}
+  input[type=file]{padding:9px}
+  button{width:100%;margin-top:20px;background:var(--brand);color:#fff;border:none;
+         border-radius:11px;padding:14px;font-size:16px;font-weight:700;cursor:pointer}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .status{margin-top:14px;font-size:14px;text-align:center;min-height:20px}
+  .status.ok{color:var(--ok)} .status.err{color:var(--err)}
+  .tip{font-size:12px;color:var(--sub);margin-top:16px;text-align:center}
+</style>
+</head>
+<body>
+<div class="box">
+  <p class="co" id="co"></p>
+  <h1>📨 校招内推简历投递</h1>
+  <div class="ref">您的内推推荐人：<b id="refName">—</b></div>
+
+  <form id="f">
+    <label>您的姓名 <span class="req">*</span></label>
+    <input type="text" name="candidate" required placeholder="请输入您的姓名">
+
+    <label>您的邮箱 <span class="req">*</span> <span style="font-weight:400;color:var(--sub)">（用于 HR 回复联系）</span></label>
+    <input type="email" name="email" required placeholder="name@example.com">
+
+    <label>手机号</label>
+    <input type="tel" name="phone" placeholder="选填">
+
+    <label>简历附件 <span class="req">*</span> <span style="font-weight:400;color:var(--sub)">（PDF/Word，≤10MB）</span></label>
+    <input type="file" name="resume" required accept=".pdf,.doc,.docx">
+
+    <label>备注</label>
+    <textarea name="note" rows="3" placeholder="选填，如意向岗位、城市等"></textarea>
+
+    <button type="submit" id="submitBtn">提交简历</button>
+    <div class="status" id="status"></div>
+  </form>
+  <p class="tip">提交后简历会直接发送到 HR 邮箱，推荐人信息已自动带入。</p>
+</div>
+
+<script>
+/* =========================================================================
+   配置区：HR 只需改这里
+   -------------------------------------------------------------------------
+   方式一（默认，最简单）：Formspree
+     1) 打开 https://formspree.io 免费注册，新建一个表单
+     2) 在表单 Settings 里把「收件邮箱」设为 HR 邮箱
+     3) 复制表单地址，形如 https://formspree.io/f/abcdefgh ，填到下面
+   方式二：EmailJS（如需邮件直接带附件，可用此方式，需去 emailjs.com 注册取密钥）
+   ========================================================================= */
+const CONFIG = {
+  RELAY: 'formspree',                                  // 'formspree' 或 'emailjs'
+  FORMSPREE_ENDPOINT: 'https://formspree.io/f/你的表单ID',
+  EMAILJS: {
+    PUBLIC_KEY: '', SERVICE_ID: '', TEMPLATE_ID: ''
+  }
+};
+
+// 从链接读取推荐人与公司
+const params = new URLSearchParams(location.search);
+const refName = params.get('ref') || '未知';
+const coName  = params.get('co') || '';
+document.getElementById('refName').textContent = refName;
+document.getElementById('co').textContent = coName ? (coName + ' · 校招内推') : '校招内推';
+
+const form = document.getElementById('f');
+const btn = document.getElementById('submitBtn');
+const status = document.getElementById('status');
+
+form.addEventListener('submit', function(e){
+  e.preventDefault();
+  status.className = 'status'; status.textContent = '提交中…';
+  btn.disabled = true;
+
+  const data = new FormData(form);
+  data.append('ref', refName);          // 推荐人（HR 邮件里可见）
+  data.append('company', coName);
+
+  if(CONFIG.RELAY === 'emailjs'){
+    sendEmailJS(data).then(finish).catch(err=>fail(err));
+  } else {
+    fetch(CONFIG.FORMSPREE_ENDPOINT, { method:'POST', body:data, headers:{ 'Accept':'application/json' } })
+      .then(r=>{ if(r.ok) return r.json().catch(()=>({})); throw new Error('提交失败('+r.status+')'); })
+      .then(finish).catch(err=>fail(err));
+  }
+
+  function finish(){
+    status.className = 'status ok';
+    status.textContent = '✅ 提交成功！HR 会尽快查看您的简历。';
+    form.reset();
+    btn.disabled = false;
+  }
+  function fail(err){
+    status.className = 'status err';
+    status.textContent = '❌ 提交失败：' + (err && err.message ? err.message : err) + '，请稍后重试或联系推荐人。';
+    btn.disabled = false;
+  }
+});
+
+// EmailJS 方式（按需启用）
+function sendEmailJS(data){
+  return new Promise(function(resolve, reject){
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js';
+    s.onload = function(){
+      // EmailJS 需要服务端模板配合，字段：ref/company/candidate/email/phone/note/resume
+      window.emailjs.init(CONFIG.EMAILJS.PUBLIC_KEY);
+      const obj = {}; data.forEach((v,k)=> obj[k]=v);
+      window.emailjs.send(CONFIG.EMAILJS.SERVICE_ID, CONFIG.EMAILJS.TEMPLATE_ID, obj)
+        .then(resolve).catch(reject);
+    };
+    s.onerror = function(){ reject(new Error('EmailJS 脚本加载失败')); };
+    document.head.appendChild(s);
+  });
+}
+</script>
+</body>
+</html>
