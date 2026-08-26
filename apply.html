@@ -36,11 +36,17 @@
 <div class="box">
   <p class="co" id="co"></p>
   <h1>📨 校招内推简历投递</h1>
-  <div class="ref">您的内推推荐人：<b id="refName">—</b></div>
+  <!-- 推荐人信息已隐藏，但仍作为隐藏字段提交到 HR 邮箱 -->
+  <div class="ref" style="display:none;">您的内推推荐人：<b id="refName">—</b></div>
 
   <form id="f">
     <label>您的姓名 <span class="req">*</span></label>
     <input type="text" name="candidate" required placeholder="请输入您的姓名">
+
+    <label>意向岗位 <span class="req">*</span></label>
+    <select name="job" required id="jobSelect">
+      <option value="">请选择岗位</option>
+    </select>
 
     <label>您的邮箱 <span class="req">*</span> <span style="font-weight:400;color:var(--sub)">（用于 HR 回复联系）</span></label>
     <input type="email" name="email" required placeholder="name@example.com">
@@ -80,7 +86,8 @@
    ========================================================================= */
 const CONFIG = {
   RELAY: 'formsubmit',                                 // 'formsubmit' | 'cloud' | 'formspree' | 'emailjs'
-  FORMSUBMIT_EMAIL: '2532190460@qq.com',                  // ← 改成 HR 邮箱（先填你自己的测，首次提交会收到确认邮件需点击）
+  FORMSUBMIT_EMAIL: '2532190460@qq.com',               // ← 改成 HR 邮箱（首次提交会收到确认邮件需点击）
+  JOBS: ['Java开发工程师', '前端开发工程师', '产品经理', '测试工程师'], // ← HR 在这里改岗位列表，改完 commit 后所有二维码实时生效
   CLOUD_API: 'https://你的云函数地址/api/referral',    // 部署后填真实云函数 HTTP 触发地址
   FORMSPREE_ENDPOINT: 'https://formspree.io/f/你的表单ID',
   EMAILJS: {
@@ -94,6 +101,20 @@ const refName = params.get('ref') || '未知';
 const coName  = params.get('co') || '';
 document.getElementById('refName').textContent = refName;
 document.getElementById('co').textContent = coName ? (coName + ' · 校招内推') : '校招内推';
+
+// 渲染岗位下拉框
+const jobSelect = document.getElementById('jobSelect');
+if (Array.isArray(CONFIG.JOBS) && CONFIG.JOBS.length) {
+  CONFIG.JOBS.forEach(function(j){
+    const opt = document.createElement('option');
+    opt.value = j;
+    opt.textContent = j;
+    jobSelect.appendChild(opt);
+  });
+} else {
+  jobSelect.style.display = 'none';
+  jobSelect.required = false;
+}
 
 // 预填 formsubmit 隐藏字段（推荐人 / 公司 / 邮件主题 / 回跳地址）
 document.getElementById('f_ref').value = refName;
