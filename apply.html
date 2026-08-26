@@ -54,6 +54,12 @@
     <label>备注</label>
     <textarea name="note" rows="3" placeholder="选填，如意向岗位、城市等"></textarea>
 
+    <input type="hidden" name="_subject" id="f_subject">
+    <input type="hidden" name="_captcha" value="false">
+    <input type="hidden" name="_next" id="f_next">
+    <input type="hidden" name="ref" id="f_ref">
+    <input type="hidden" name="company" id="f_company">
+
     <button type="submit" id="submitBtn">提交简历</button>
     <div class="status" id="status"></div>
   </form>
@@ -62,16 +68,20 @@
 
 <script>
 /* =========================================================================
-   配置区：HR 只需改这里
+   配置区：HR 只需改这里（FORMSUBMIT_EMAIL）
    -------------------------------------------------------------------------
-   方式一（默认，最简单）：Formspree
-     1) 打开 https://formspree.io 免费注册，新建一个表单
-     2) 在表单 Settings 里把「收件邮箱」设为 HR 邮箱
-     3) 复制表单地址，形如 https://formspree.io/f/abcdefgh ，填到下面
-   方式二：EmailJS（如需邮件直接带附件，可用此方式，需去 emailjs.com 注册取密钥）
+   方式一（默认·最快）：formsubmit.co（零注册、免费、支持附件）
+     - 把 FORMSUBMIT_EMAIL 改成你的 HR 邮箱（先填自己测）
+     - 首次提交会收到一封确认邮件，点链接确认后即生效
+     - 候选人扫码在微信里填表提交，简历直接发到该邮箱，主题带「推荐人：姓名」
+   方式二：腾讯云 CloudBase 云函数（国内、合规）→ 改 RELAY='cloud' 并填 CLOUD_API
+   方式三：Formspree / EmailJS（境外，仅测试用）
+   注：以上任一种，推荐人姓名都由二维码 ?ref= 决定，候选人看不到也改不了。
    ========================================================================= */
 const CONFIG = {
-  RELAY: 'formspree',                                  // 'formspree' 或 'emailjs'
+  RELAY: 'formsubmit',                                 // 'formsubmit' | 'cloud' | 'formspree' | 'emailjs'
+  FORMSUBMIT_EMAIL: 'hr@example.com',                  // ← 改成 HR 邮箱（先填你自己的测，首次提交会收到确认邮件需点击）
+  CLOUD_API: 'https://你的云函数地址/api/referral',    // 部署后填真实云函数 HTTP 触发地址
   FORMSPREE_ENDPOINT: 'https://formspree.io/f/你的表单ID',
   EMAILJS: {
     PUBLIC_KEY: '', SERVICE_ID: '', TEMPLATE_ID: ''
@@ -85,11 +95,24 @@ const coName  = params.get('co') || '';
 document.getElementById('refName').textContent = refName;
 document.getElementById('co').textContent = coName ? (coName + ' · 校招内推') : '校招内推';
 
+// 预填 formsubmit 隐藏字段（推荐人 / 公司 / 邮件主题 / 回跳地址）
+document.getElementById('f_ref').value = refName;
+document.getElementById('f_company').value = coName;
+document.getElementById('f_subject').value = '【校招内推】' + (coName ? coName + ' · ' : '') + '推荐人：' + refName;
+document.getElementById('f_next').value = location.href;
+
 const form = document.getElementById('f');
 const btn = document.getElementById('submitBtn');
 const status = document.getElementById('status');
 
 form.addEventListener('submit', function(e){
+  if(CONFIG.RELAY === 'formsubmit'){
+    // 原生提交到 formsubmit.co，由它把简历+字段发邮件给 HR（候选人无需选邮件 App）
+    form.action = 'https://formsubmit.co/' + CONFIG.FORMSUBMIT_EMAIL;
+    form.method = 'POST';
+    form.enctype = 'multipart/form-data';
+    return; // 放行原生提交
+  }
   e.preventDefault();
   status.className = 'status'; status.textContent = '提交中…';
   btn.disabled = true;
@@ -98,13 +121,20 @@ form.addEventListener('submit', function(e){
   data.append('ref', refName);          // 推荐人（HR 邮件里可见）
   data.append('company', coName);
 
-  if(CONFIG.RELAY === 'emailjs'){
+  let endpoint, opts;
+  if(CONFIG.RELAY === 'cloud'){
+    endpoint = CONFIG.CLOUD_API;
+    opts = { method:'POST', body:data };   // multipart，不手动设 Content-Type（让浏览器带 boundary）
+  } else if(CONFIG.RELAY === 'emailjs'){
     sendEmailJS(data).then(finish).catch(err=>fail(err));
+    return;
   } else {
-    fetch(CONFIG.FORMSPREE_ENDPOINT, { method:'POST', body:data, headers:{ 'Accept':'application/json' } })
-      .then(r=>{ if(r.ok) return r.json().catch(()=>({})); throw new Error('提交失败('+r.status+')'); })
-      .then(finish).catch(err=>fail(err));
+    endpoint = CONFIG.FORMSPREE_ENDPOINT;
+    opts = { method:'POST', body:data, headers:{ 'Accept':'application/json' } };
   }
+  fetch(endpoint, opts)
+    .then(r=>{ if(r.ok) return r.json().catch(()=>({})); throw new Error('提交失败('+r.status+')'); })
+    .then(finish).catch(err=>fail(err));
 
   function finish(){
     status.className = 'status ok';
