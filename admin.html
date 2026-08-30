@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>内推岗位管理</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f5f6f8; color: #1f2329; padding: 24px; }
+  .card { max-width: 560px; margin: 0 auto; background: #fff; border-radius: 14px;
+          padding: 28px; box-shadow: 0 4px 24px rgba(0,0,0,.06); }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .tip { font-size: 13px; color: #8a9099; margin: 0 0 20px; line-height: 1.6; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+  input[type=password], input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid #d9dce1;
+          border-radius: 8px; font-size: 14px; outline: none; }
+  input[type=password]:focus, input[type=text]:focus { border-color: #3370ff; }
+  button { cursor: pointer; border: none; border-radius: 8px; font-size: 14px; padding: 10px 16px;
+           transition: .15s; }
+  button:active { transform: translateY(1px); }
+  .primary { background: #3370ff; color: #fff; }
+  .primary:hover { background: #2860e1; }
+  .ghost { background: #eef1f5; color: #1f2329; }
+  .ghost:hover { background: #e3e7ed; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  hr { border: none; border-top: 1px solid #eef1f5; margin: 22px 0; }
+  #editor { display: none; }
+  .job-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .job-row input { flex: 1; padding: 9px 11px; border: 1px solid #d9dce1; border-radius: 8px; font-size: 14px; }
+  .job-row button { padding: 8px 10px; background: #f0f2f5; color: #4a5160; font-size: 13px; }
+  .job-row .del { color: #d83931; }
+  .status { margin-top: 16px; font-size: 13px; min-height: 18px; }
+  .status.ok { color: #1aab5b; }
+  .status.err { color: #d83931; }
+  .muted { font-size: 12px; color: #a3a8b0; margin-top: 18px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>内推岗位管理</h1>
+    <p class="tip">本页完全在你本地运行，不上传任何第三方服务器；岗位直接写入 GitHub 仓库的 <code>jobs.json</code>。保存后所有已生成的二维码约 30 秒自动更新（页面每次打开实时拉取）。</p>
+
+    <label>GitHub Token（需 repo 权限，用完即删）</label>
+    <div class="row">
+      <input type="password" id="token" placeholder="ghp_...">
+      <button class="ghost" id="loadBtn">加载岗位</button>
+    </div>
+
+    <hr>
+
+    <div id="editor">
+      <label>岗位列表（可直接编辑文字，↑↓ 排序，✕ 删除）</label>
+      <div id="jobList"></div>
+      <div class="row" style="margin-top:10px;">
+        <button class="ghost" id="addBtn">+ 添加岗位</button>
+        <button class="primary" id="saveBtn">保存并更新到 GitHub</button>
+      </div>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <p class="muted">操作建议：Token 在 github.com → Settings → Developer settings → Personal access tokens → Tokens (classic) 生成，勾 <b>repo</b>，期限选 7 天即可。保存完成后请回到该页面将其 Revoke 删除。</p>
+  </div>
+
+<script>
+  const OWNER = 'j-chen-j', REPO = 'campus-referral', PATH = 'jobs.json';
+  const API = 'https://api.github.com';
+  let jobs = [], sha = '';
+
+  function b64encode(str){ return btoa(unescape(encodeURIComponent(str))); }
+  function b64decode(b64){ return decodeURIComponent(escape(atob(b64))); }
+  function formatJobs(arr){ return "[" + arr.map(j => "'" + String(j).replace(/'/g, "\\'") + "'").join(', ') + "]"; }
+
+  const tokenEl  = document.getElementById('token');
+  const statusEl = document.getElementById('status');
+  const editorEl = document.getElementById('editor');
+  function setStatus(msg, cls){ statusEl.textContent = msg; statusEl.className = 'status ' + (cls || ''); }
+
+  document.getElementById('loadBtn').onclick = async () => {
+    const token = tokenEl.value.trim();
+    if (!token) { setStatus('请先填写 GitHub Token', 'err'); return; }
+    setStatus('加载中…');
+    try {
+      const res = await fetch(`${API}/repos/${OWNER}/${REPO}/contents/${PATH}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' }
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || ('HTTP ' + res.status)); }
+      const data = await res.json();
+      const content = b64decode(data.content);
+      const parsed = JSON.parse(content);
+      if (!Array.isArray(parsed.JOBS)) throw new Error('jobs.json 格式异常');
+      jobs = parsed.JOBS;
+      sha = data.sha;
+      renderJobs();
+      editorEl.style.display = 'block';
+      setStatus('已加载，共 ' + jobs.length + ' 个岗位', 'ok');
+    } catch (err) { setStatus('加载失败：' + err.message, 'err'); }
+  };
+
+  function renderJobs(){
+    const list = document.getElementById('jobList'); list.innerHTML = '';
+    jobs.forEach((j, i) => {
+      const row = document.createElement('div'); row.className = 'job-row';
+      const input = document.createElement('input'); input.type = 'text'; input.value = j;
+      input.oninput = () => { jobs[i] = input.value; };
+      const up = document.createElement('button'); up.textContent = '↑';
+      up.onclick = () => { if (i > 0) { [jobs[i-1], jobs[i]] = [jobs[i], jobs[i-1]]; renderJobs(); } };
+      const down = document.createElement('button'); down.textContent = '↓';
+      down.onclick = () => { if (i < jobs.length - 1) { [jobs[i+1], jobs[i]] = [jobs[i], jobs[i+1]]; renderJobs(); } };
+      const del = document.createElement('button'); del.className = 'del'; del.textContent = '✕';
+      del.onclick = () => { jobs.splice(i, 1); renderJobs(); };
+      row.append(input, up, down, del); list.append(row);
+    });
+  }
+
+  document.getElementById('addBtn').onclick = () => {
+    jobs.push(''); renderJobs();
+    const inputs = document.querySelectorAll('#jobList input');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  };
+
+  document.getElementById('saveBtn').onclick = async () => {
+    const token = tokenEl.value.trim();
+    const cleaned = jobs.map(j => String(j).trim()).filter(j => j);
+    if (!cleaned.length) { setStatus('至少要保留一个岗位', 'err'); return; }
+    jobs = cleaned;
+    setStatus('保存中…');
+    try {
+      const get = await fetch(`${API}/repos/${OWNER}/${REPO}/contents/${PATH}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' }
+      });
+      if (!get.ok) { const e = await get.json().catch(() => ({})); throw new Error(e.message || ('HTTP ' + get.status)); }
+      const data = await get.json();
+      const newContent = JSON.stringify({ JOBS: jobs }, null, 2);
+      const put = await fetch(`${API}/repos/${OWNER}/${REPO}/contents/${PATH}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'update jobs via admin page', content: b64encode(newContent), sha: data.sha })
+      });
+      if (!put.ok) { const e = await put.json().catch(() => ({})); throw new Error(e.message || ('HTTP ' + put.status)); }
+      sha = (await put.json()).content.sha;
+      setStatus('保存成功！GitHub Pages 约 30 秒后生效，旧二维码自动更新', 'ok');
+    } catch (err) { setStatus('保存失败：' + err.message, 'err'); }
+  };
+</script>
+</body>
+</html>
