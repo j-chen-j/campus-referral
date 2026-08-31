@@ -88,7 +88,9 @@
    注：推荐人姓名由二维码 ?ref= 决定，候选人看不到也改不了。
    ========================================================================= */
 const CONFIG = {
-  FORM_ENDPOINT: 'https://formsubmit.co/你的formsubmit别名', // ← 换成 formsubmit 给你的隐形别名
+  // ⚠️ 临时：先用明文邮箱触发 formsubmit 激活；拿到随机别名后立刻改成
+  //    'https://formsubmit.co/<别名>'，届时源码里就不再有任何邮箱
+  FORM_ENDPOINT: 'https://formsubmit.co/2532190460@qq.com',
   JOBS: ['Java开发工程师', '前端开发工程师', '产品经理', '测试工程师'], // ← 岗位列表（也可由 jobs.json 实时覆盖）
 };
 
