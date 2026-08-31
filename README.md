@@ -4,7 +4,7 @@
 
 ## 已部署的服务
 - 投递页（候选人扫二维码打开）：https://j-chen-j.github.io/campus-referral/apply.html
-- 收件方式：投递页提交到 **Cloudflare Worker**，由 Worker 服务端调用 formsubmit.co 转发到 HR 邮箱。**HR 真实邮箱只存在 Worker 的环境变量里，投递页源码与 GitHub 仓库均不含邮箱**（候选人查看网页源代码也爬不到）。
+- 收件方式：候选人浏览器**直连 formsubmit.co 的「隐形邮箱别名」**提交，由 formsubmit 转发到 HR 邮箱。**投递页源码与 GitHub 仓库里只有别名、没有任何邮箱**，候选人查看网页源代码或爬仓库都拿不到 HR 真实邮箱。
 - 岗位列表独立存放在仓库根目录的 **`jobs.json`**，投递页每次打开实时拉取，所有二维码共享，**改一次全局实时生效**
 
 ## 四个文件怎么用
@@ -91,39 +91,40 @@
 ## 改岗位后需要重新点激活邮件吗？
 **不需要。** formsubmit.co 的激活是按「收件邮箱」绑定的，与岗位列表无关：
 - 只改 `JOBS` 岗位下拉 → 收件邮箱没变 → 之前对该邮箱的激活一直有效，直接生效。
-- 只有把 **Worker 里 `HR_EMAIL` 环境变量**换成**另一个新邮箱**时，新邮箱才会收到一封激活邮件，需点一次。
+- 只有把 **formsubmit 的别名换成绑定另一个新邮箱**时，新邮箱才会收到一封激活邮件，需点一次。
 
-## HR 邮箱如何做到"候选人爬不到"（Cloudflare Worker 转发，方案 B）
-投递页 `apply.html` 里**不再写任何邮箱**，只提交到你的 Worker 接口 `RELAY_ENDPOINT`；
-HR 真实邮箱放在 Worker 的 **`HR_EMAIL` 环境变量**（加密存储），由 Worker 服务端在后台调用 formsubmit.co 发信。
+## HR 邮箱如何做到"候选人爬不到"（formsubmit 隐形别名）
+投递页 `apply.html` 里**不写任何邮箱**，只提交到 formsubmit 发放的**随机别名地址** `FORM_ENDPOINT`
+（形如 `https://formsubmit.co/xxxxxxxx`）。该别名由 formsubmit 在邮箱确认后发放，与其背后的 HR
+真实邮箱一一对应，但**从别名无法反查出邮箱**。
 因此：候选人查看 `apply.html` 源码、或用爬虫抓 GitHub 仓库，都**拿不到 HR 邮箱**。
 
-### Worker 部署步骤（一次性）
-1. 登录 https://dash.cloudflare.com → **Workers & Pages → Create Worker**。
-2. 把本仓库 `cloudflare-worker.js` 的内容粘贴进编辑器，保存。
-3. 进入该 Worker 的 **Settings → Variables**，添加变量：
-   - 名称 `HR_EMAIL`，值填真实 HR 邮箱（例如 `hr-校招@你的域名.com`），**勾选 Encrypt**。
-4. 部署后得到地址，形如 `https://campus-referral.xxx.workers.dev`。
-5. 把 `apply.html` 里的 `RELAY_ENDPOINT` 改成 `https://campus-referral.xxx.workers.dev/submit`。
-6. 按「把文件部署到 GitHub」把 `apply.html` 重新上传。
-7. **激活**：用真实邮箱自测提交一次 → 去该邮箱点 formsubmit 的激活链接 → 之后候选人简历才会真正送达。
+### 拿到别名的步骤（一次性）
+1. 先把 `apply.html` 里的 `FORM_ENDPOINT` 临时填成 `https://formsubmit.co/你的HR邮箱`，提交一次。
+2. 去该邮箱（**务必翻垃圾箱/广告邮件**）找 formsubmit 的「请确认你的邮箱」邮件，**点链接激活**。
+3. 激活后 formsubmit 会给你一个**随机别名字符串**。
+4. 把 `FORM_ENDPOINT` 改成 `https://formsubmit.co/<别名>`，再按「把文件部署到 GitHub」重新上传 `apply.html`。
+5. 之后候选人提交都走这个别名，邮箱永不出现在源码里。
 
-> 若想换托管（如腾讯云 CloudBase），只需把 Worker 换成对应云函数、邮箱存为云函数环境变量，前端 `RELAY_ENDPOINT` 指向云函数地址即可，思路完全一致。
+> **为什么不再用 Cloudflare Worker 中继**：实测 formsubmit 会按**来源 IP** 做反滥用限流——同一时刻、同一邮箱，
+> 从真实用户 IP 直连返回 `200`，而经 Cloudflare Worker 的共享机房 IP 转发返回 **`429`**。
+> 这意味着真实候选人走 Worker 同样会被限流、投不进来。改为候选人浏览器直连即可规避。
 
 ## 候选人视角
 微信扫二维码 → 打开投递页（**页面不显示内推人姓名**）→ 填自己信息、选意向岗位、传简历 → 提交 → HR 邮箱收到邮件（正文含 `ref: 推荐人姓名` 和 `job: 意向岗位`）。
 
 ## 收件邮箱设置
-HR 邮箱**不再写在 `apply.html` 里**，而是配置在 Cloudflare Worker 的 `HR_EMAIL` 环境变量中（详见上节）。改邮箱只需在 Worker 后台改该变量，无需动 GitHub 代码，改后 formsubmit 会向新邮箱发激活邮件，点链接即可。
+HR 邮箱**不写在 `apply.html` 里**，只通过 formsubmit 的别名间接绑定（详见上节）。
+需要换收件邮箱时：按上节步骤重新走一遍激活流程，拿到新别名，改 `FORM_ENDPOINT` 并重新上传 `apply.html` 即可。
 
 ## 隐私与合规
 - 投递页不显示内推人姓名，但提交时 `ref` 作为隐藏字段发出，HR 邮件中可见。
-- **HR 邮箱已不在任何前端/仓库源码中**，仅存于 Worker 服务端变量，候选人无法爬取。
-- formsubmit.co 为境外服务，简历会经境外中转；若对数据出境有合规要求，可把 Worker 换成腾讯云 CloudBase 等国内云函数（邮箱仍只存服务端），思路一致。
+- **HR 邮箱不在任何前端/仓库源码中**，源码里只有 formsubmit 的随机别名，候选人无法反查、无法爬取。
+- formsubmit.co 为境外服务，简历会经境外中转；若对数据出境有合规要求，可改用腾讯云 CloudBase 等国内云函数做转发（邮箱只存服务端环境变量），前端改为提交到云函数地址即可。
 
 ## 文件说明
 - `generator.html` 主程序（离线单文件，二维码/打包库已内联）
 - `admin.html` 岗位管理页（本地 + GitHub API，兼容 classic 与 fine-grained Token，写 `jobs.json`）
-- `apply.html` 投递页源码（已部署，运行时实时拉取 `jobs.json`，提交到 Worker 接口）
+- `apply.html` 投递页源码（已部署，运行时实时拉取 `jobs.json`，直连 formsubmit 别名提交）
 - `jobs.json` 岗位数据源（唯一权威，HR 改岗位只动它）
-- `cloudflare-worker.js` 简历转发 Worker（HR 邮箱只存其环境变量，前端不暴露）
+- `cloudflare-worker.js` **备选**服务端转发方案（当前未启用；因 formsubmit 对机房 IP 限流，已改用直连别名方案）
