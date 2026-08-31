@@ -30,9 +30,9 @@
   button{width:100%;margin-top:20px;background:var(--brand);color:#fff;border:none;
          border-radius:11px;padding:14px;font-size:16px;font-weight:700;cursor:pointer}
   button:disabled{opacity:.6;cursor:not-allowed}
-  .status{margin-top:14px;font-size:14px;text-align:center;min-height:20px}
-  .status.ok{color:var(--ok)} .status.err{color:var(--err)}
   .tip{font-size:12px;color:var(--sub);margin-top:16px;text-align:center}
+  .ok{margin-top:10px;background:#eafaf0;color:var(--ok);border:1px solid #bfe9cd;
+      border-radius:12px;padding:18px;text-align:center;font-weight:600;line-height:1.8}
 </style>
 </head>
 <body>
@@ -70,32 +70,24 @@
     <input type="hidden" name="company" id="f_company">
 
     <button type="submit" id="submitBtn">提交简历</button>
-    <div class="status" id="status"></div>
   </form>
   <p class="tip">提交后简历会直接发送到 HR 邮箱，推荐人信息已自动带入。</p>
 </div>
 
 <script>
 /* =========================================================================
-   配置区：HR 只需改这里（FORMSUBMIT_EMAIL）
+   配置区：HR 只需改这里
    -------------------------------------------------------------------------
-   方式一（默认·最快）：formsubmit.co（零注册、免费、支持附件）
-     - 把 FORMSUBMIT_EMAIL 改成你的 HR 邮箱（先填自己测）
-     - 首次提交会收到一封确认邮件，点链接确认后即生效
-     - 候选人扫码在微信里填表提交，简历直接发到该邮箱，主题带「推荐人：姓名」
-   方式二：腾讯云 CloudBase 云函数（国内、合规）→ 改 RELAY='cloud' 并填 CLOUD_API
-   方式三：Formspree / EmailJS（境外，仅测试用）
-   注：以上任一种，推荐人姓名都由二维码 ?ref= 决定，候选人看不到也改不了。
+   投递走 Cloudflare Worker 转发（RELAY_ENDPOINT），再由 Worker 服务端调用
+   formsubmit.co 发到 HR 邮箱。HR 真实邮箱只存在 Worker 的环境变量/密钥里，
+   本文件与 GitHub 源码中均不包含邮箱，候选人查看源码也爬不到。
+   - RELAY_ENDPOINT：你的 Worker 地址（部署后填，见 README）
+   - 首次使用需激活：Worker 里配置的 HR 邮箱会收到 formsubmit 激活邮件，点链接确认
+   注：推荐人姓名由二维码 ?ref= 决定，候选人看不到也改不了。
    ========================================================================= */
 const CONFIG = {
-  RELAY: 'formsubmit',                                 // 'formsubmit' | 'cloud' | 'formspree' | 'emailjs'
-  FORMSUBMIT_EMAIL: '2532190460@qq.com',               // ← 改成 HR 邮箱（首次提交会收到确认邮件需点击）
-  JOBS: ['Java开发工程师', '前端开发工程师', '产品经理', '测试工程师'], // ← HR 在这里改岗位列表，改完 commit 后所有二维码实时生效
-  CLOUD_API: 'https://你的云函数地址/api/referral',    // 部署后填真实云函数 HTTP 触发地址
-  FORMSPREE_ENDPOINT: 'https://formspree.io/f/你的表单ID',
-  EMAILJS: {
-    PUBLIC_KEY: '', SERVICE_ID: '', TEMPLATE_ID: ''
-  }
+  RELAY_ENDPOINT: 'https://old-brook-e3b5.j75081562.workers.dev/submit', // ← 改成你的 Worker 地址
+  JOBS: ['Java开发工程师', '前端开发工程师', '产品经理', '测试工程师'], // ← 岗位列表（也可由 jobs.json 实时覆盖）
 };
 
 // 从链接读取推荐人与公司
@@ -130,76 +122,31 @@ async function loadJobs(){
 }
 loadJobs();
 
-// 预填 formsubmit 隐藏字段（推荐人 / 公司 / 邮件主题 / 回跳地址）
+// 预填隐藏字段（推荐人 / 公司 / 邮件主题 / 回跳地址）
 document.getElementById('f_ref').value = refName;
 document.getElementById('f_company').value = coName;
 document.getElementById('f_subject').value = '【校招内推】' + (coName ? coName + ' · ' : '') + '推荐人：' + refName;
-document.getElementById('f_next').value = location.href;
+document.getElementById('f_next').value = location.origin + location.pathname + '?success=1';
+
+// 提交成功后回跳带 ?success=1，显示成功提示并隐藏表单
+if (params.get('success') === '1') {
+  document.getElementById('f').style.display = 'none';
+  const ok = document.createElement('div');
+  ok.className = 'ok';
+  ok.innerHTML = '✅ 提交成功！<br>HR 会尽快查看您的简历，感谢您的投递。';
+  document.querySelector('.box').appendChild(ok);
+}
 
 const form = document.getElementById('f');
-const btn = document.getElementById('submitBtn');
-const status = document.getElementById('status');
 
-form.addEventListener('submit', function(e){
-  if(CONFIG.RELAY === 'formsubmit'){
-    // 原生提交到 formsubmit.co，由它把简历+字段发邮件给 HR（候选人无需选邮件 App）
-    form.action = 'https://formsubmit.co/' + CONFIG.FORMSUBMIT_EMAIL;
-    form.method = 'POST';
-    form.enctype = 'multipart/form-data';
-    return; // 放行原生提交
-  }
-  e.preventDefault();
-  status.className = 'status'; status.textContent = '提交中…';
-  btn.disabled = true;
-
-  const data = new FormData(form);
-  data.append('ref', refName);          // 推荐人（HR 邮件里可见）
-  data.append('company', coName);
-
-  let endpoint, opts;
-  if(CONFIG.RELAY === 'cloud'){
-    endpoint = CONFIG.CLOUD_API;
-    opts = { method:'POST', body:data };   // multipart，不手动设 Content-Type（让浏览器带 boundary）
-  } else if(CONFIG.RELAY === 'emailjs'){
-    sendEmailJS(data).then(finish).catch(err=>fail(err));
-    return;
-  } else {
-    endpoint = CONFIG.FORMSPREE_ENDPOINT;
-    opts = { method:'POST', body:data, headers:{ 'Accept':'application/json' } };
-  }
-  fetch(endpoint, opts)
-    .then(r=>{ if(r.ok) return r.json().catch(()=>({})); throw new Error('提交失败('+r.status+')'); })
-    .then(finish).catch(err=>fail(err));
-
-  function finish(){
-    status.className = 'status ok';
-    status.textContent = '✅ 提交成功！HR 会尽快查看您的简历。';
-    form.reset();
-    btn.disabled = false;
-  }
-  function fail(err){
-    status.className = 'status err';
-    status.textContent = '❌ 提交失败：' + (err && err.message ? err.message : err) + '，请稍后重试或联系推荐人。';
-    btn.disabled = false;
-  }
+// 提交：原生提交到 Cloudflare Worker，由它的服务端把简历转发到 HR 邮箱
+// （真实邮箱只在 Worker 环境变量里，前端/源码都不含，候选人爬不到）
+form.addEventListener('submit', function(){
+  form.action = CONFIG.RELAY_ENDPOINT;
+  form.method = 'POST';
+  form.enctype = 'multipart/form-data';
+  // 不调用 preventDefault，放行原生提交
 });
-
-// EmailJS 方式（按需启用）
-function sendEmailJS(data){
-  return new Promise(function(resolve, reject){
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js';
-    s.onload = function(){
-      // EmailJS 需要服务端模板配合，字段：ref/company/candidate/email/phone/note/resume
-      window.emailjs.init(CONFIG.EMAILJS.PUBLIC_KEY);
-      const obj = {}; data.forEach((v,k)=> obj[k]=v);
-      window.emailjs.send(CONFIG.EMAILJS.SERVICE_ID, CONFIG.EMAILJS.TEMPLATE_ID, obj)
-        .then(resolve).catch(reject);
-    };
-    s.onerror = function(){ reject(new Error('EmailJS 脚本加载失败')); };
-    document.head.appendChild(s);
-  });
-}
 </script>
 </body>
 </html>

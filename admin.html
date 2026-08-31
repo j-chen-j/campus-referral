@@ -41,6 +41,11 @@
     <h1>内推岗位管理</h1>
     <p class="tip">本页完全在你本地运行，不上传任何第三方服务器；岗位直接写入 GitHub 仓库的 <code>jobs.json</code>。保存后所有已生成的二维码约 30 秒自动更新（页面每次打开实时拉取）。</p>
 
+    <div id="protoWarn" style="display:none;background:#fff4e5;border:1px solid #ffb74d;color:#8a4b00;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6;margin-bottom:18px;">
+      ⚠️ 检测到你是用 <b>file://</b> 直接双击打开本页。这种打开方式浏览器会用“空源”请求 GitHub API，被 CORS 拦截，必然报 <b>Failed to fetch</b>。<br>
+      请改用 <b>http</b> 方式打开：在本文件夹运行 <code>python -m http.server 8000</code>，然后浏览器访问 <code>http://localhost:8000/admin.html</code>；或在 WorkBuddy 里用预览/http 方式打开本文件。
+    </div>
+
     <label>GitHub Token（需 repo 权限，用完即删）</label>
     <div class="row">
       <input type="password" id="token" placeholder="ghp_...">
@@ -64,13 +69,17 @@
   </div>
 
 <script>
+  // file:// 打开会被 CORS 拦截，提前提示用 http 方式打开
+  if (location.protocol === 'file:') {
+    document.getElementById('protoWarn').style.display = 'block';
+  }
+
   const OWNER = 'j-chen-j', REPO = 'campus-referral', PATH = 'jobs.json';
   const API = 'https://api.github.com';
   let jobs = [], sha = '';
 
   function b64encode(str){ return btoa(unescape(encodeURIComponent(str))); }
   function b64decode(b64){ return decodeURIComponent(escape(atob(b64))); }
-  function formatJobs(arr){ return "[" + arr.map(j => "'" + String(j).replace(/'/g, "\\'") + "'").join(', ') + "]"; }
 
   const tokenEl  = document.getElementById('token');
   const statusEl = document.getElementById('status');
