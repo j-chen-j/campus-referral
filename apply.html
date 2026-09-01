@@ -64,7 +64,8 @@
     <textarea name="note" rows="3" placeholder="选填，如意向岗位、城市等"></textarea>
 
     <input type="hidden" name="_subject" id="f_subject">
-    <input type="hidden" name="_captcha" value="false">
+    <!-- 注意：不要关闭 formsubmit 的人机验证。官方文档明确警告，禁用 reCAPTCHA
+         会触发其为过滤机器人而施加的"技术限制"（表现为 429 限流/提交被静默丢弃）。 -->
     <input type="hidden" name="_next" id="f_next">
     <input type="hidden" name="ref" id="f_ref">
     <input type="hidden" name="company" id="f_company">
@@ -88,9 +89,10 @@
    注：推荐人姓名由二维码 ?ref= 决定，候选人看不到也改不了。
    ========================================================================= */
 const CONFIG = {
-  // ⚠️ 临时：先用明文邮箱触发 formsubmit 激活；拿到随机别名后立刻改成
-  //    'https://formsubmit.co/<别名>'，届时源码里就不再有任何邮箱
-  FORM_ENDPOINT: 'https://formsubmit.co/2532190460@qq.com',
+  // ✅ 已启用 formsubmit「隐形别名」：源码里只有这串随机字符，没有任何邮箱。
+  //    候选人查看网页源码 / 爬 GitHub 仓库都拿不到 HR 真实邮箱。
+  //    该别名与域名 https://j-chen-j.github.io/ 绑定。
+  FORM_ENDPOINT: 'https://formsubmit.co/87e9cdbe54d0c84eb58faf9012bb7ac8',
   JOBS: ['Java开发工程师', '前端开发工程师', '产品经理', '测试工程师'], // ← 岗位列表（也可由 jobs.json 实时覆盖）
 };
 
