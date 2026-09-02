@@ -45,6 +45,7 @@
     </div>
 
     <div id="list"></div>
+    <div id="loading" style="color:var(--muted);font-size:14px;padding:10px 0;">正在从 GitHub 读取岗位列表…</div>
     <div class="row">
       <input id="newJob" placeholder="输入新岗位名，例如：数据分析师" />
       <button class="btn btn-add" onclick="addJob()">+ 添加</button>
@@ -94,6 +95,7 @@ function setupToken(){
 }
 
 function render() {
+  document.getElementById('loading').style.display = 'none';
   const list = document.getElementById('list');
   list.innerHTML = '';
   jobs.forEach((job, i) => {
@@ -122,14 +124,29 @@ function del(i){ jobs.splice(i,1); render(); }
 function move(i,d){ const j=i+d; if(j<0||j>=jobs.length) return; [jobs[i],jobs[j]]=[jobs[j],jobs[i]]; render(); }
 
 async function loadJobs() {
+  const token = getToken();
+  // 优先用 GitHub API 读取（无 raw.githubusercontent.com CDN 缓存，实时）
   try {
-    const r = await fetch(RAW_URL, { cache:'no-store' });
+    const r = await fetch(API_URL + '?t=' + Date.now(), {
+      headers: token ? { 'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json' } : { 'Accept':'application/vnd.github+json' }
+    });
+    if (r.ok) {
+      const data = await r.json();
+      const txt = b64DecodeUnicode(data.content);
+      const j = JSON.parse(txt);
+      if (Array.isArray(j.JOBS)) { jobs = j.JOBS; render(); return; }
+    }
+  } catch(e){ /* 继续尝试 raw */ }
+  // 兜底：raw 地址（带时间戳防缓存）
+  try {
+    const r = await fetch(RAW_URL + '?t=' + Date.now(), { cache:'no-store' });
     if (r.ok) {
       const j = await r.json();
       if (Array.isArray(j.JOBS)) { jobs = j.JOBS; render(); return; }
     }
-  } catch(e){ /* 离线或网络异常，用空列表兜底 */ }
-  jobs = []; render();
+  } catch(e){ /* 离线或网络异常 */ }
+  // 最终兜底：保留默认岗位，避免 HR 看到空列表
+  jobs = ['Java开发工程师','前端开发工程师','产品经理','测试工程师']; render();
 }
 
 function setStatus(msg, cls){ const s=document.getElementById('status'); s.textContent=msg; s.className='status '+cls; }
@@ -137,13 +154,15 @@ function setStatus(msg, cls){ const s=document.getElementById('status'); s.textC
 async function saveJobs() {
   const token = getToken();
   if (!token) { setStatus('请先点「设置 / 更换令牌」', 'err'); setupToken(); return; }
-  const clean = jobs.map(j=>j.trim()).filter(Boolean);
+  // 从当前输入框实时取值，不依赖 onchange 触发顺序
+  const inputs = document.querySelectorAll('#list .row input');
+  const clean = Array.from(inputs).map(inp => inp.value.trim()).filter(Boolean);
   if (clean.length === 0) { setStatus('请至少保留一个岗位', 'err'); return; }
   const btn = document.getElementById('saveBtn');
   btn.disabled = true; setStatus('保存中…', 'busy');
   try {
     // 取当前文件 sha（用于更新）
-    const head = await fetch(API_URL, { headers:{ 'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json' }});
+    const head = await fetch(API_URL + '?t=' + Date.now(), { headers:{ 'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json' }});
     let sha = null;
     if (head.ok) sha = (await head.json()).sha;
     const content = b64EncodeUnicode(JSON.stringify({ JOBS: clean }, null, 2) + "\n");
@@ -161,9 +180,12 @@ async function saveJobs() {
   } finally { btn.disabled = false; }
 }
 
-// UTF-8 安全的 base64 编码
+// UTF-8 安全的 base64 编解码
 function b64EncodeUnicode(str){
   return btoa(unescape(encodeURIComponent(str)));
+}
+function b64DecodeUnicode(str){
+  return decodeURIComponent(escape(atob(str.replace(/\s/g,''))));
 }
 
 refreshTokenState();
