@@ -64,9 +64,6 @@
     <textarea name="note" rows="3" placeholder="选填，如意向岗位、城市等"></textarea>
 
     <input type="hidden" name="_subject" id="f_subject">
-    <!-- 注意：不要关闭 formsubmit 的人机验证。官方文档明确警告，禁用 reCAPTCHA
-         会触发其为过滤机器人而施加的"技术限制"（表现为 429 限流/提交被静默丢弃）。 -->
-    <input type="hidden" name="_next" id="f_next">
     <input type="hidden" name="ref" id="f_ref">
     <input type="hidden" name="company" id="f_company">
 
@@ -93,9 +90,11 @@ const CONFIG = {
   //    候选人查看网页源码 / 爬 GitHub 仓库都拿不到 HR 真实邮箱。
   //    该别名与域名 https://j-chen-j.github.io/ 绑定。
   FORM_ENDPOINT: 'https://formsubmit.co/87e9cdbe54d0c84eb58faf9012bb7ac8',
-  // 岗位数据由 HR 在「腾讯文档」在线表格里维护，经 GitHub Actions 定时同步到本仓库 jobs.json。
-  // 投递页每次打开实时拉取 jobs.json（带时间戳防缓存），HR 改完约 10 分钟全局生效。
-  JOBS: ['Java开发工程师', '前端开发工程师', '产品经理', '测试工程师'], // ← 同步失败时的兜底
+  // AJAX 提交通道：用 /ajax/ 前缀，提交后不跳转 FormSubmit 页面，由本页自己显示成功提示。
+  FORM_ENDPOINT_AJAX: 'https://formsubmit.co/ajax/87e9cdbe54d0c84eb58faf9012bb7ac8',
+  // 岗位数据由 HR 在 hr-jobs.html（Edge 双击即用）直接写回本仓库 jobs.json。
+  // 投递页每次打开实时拉取 jobs.json（带时间戳防缓存），HR 保存后约 1 分钟全局生效。
+  JOBS: ['Java开发工程师', '前端开发工程师', '产品经理', '测试工程师'], // ← 拉取失败时的兜底
 };
 
 // 从链接读取推荐人与公司
@@ -105,7 +104,7 @@ const coName  = params.get('co') || '';
 document.getElementById('refName').textContent = refName;
 document.getElementById('co').textContent = coName ? (coName + ' · 校招内推') : '校招内推';
 
-// 渲染岗位下拉框（实时拉取仓库 jobs.json，HR 在腾讯文档改完经 GitHub Actions 自动同步；失败回退内联配置）
+// 渲染岗位下拉框（实时拉取仓库 jobs.json，HR 在 hr-jobs.html 改完即写回；失败回退内联配置）
 const jobSelect = document.getElementById('jobSelect');
 async function loadJobs(){
   let list = CONFIG.JOBS;
@@ -134,26 +133,38 @@ loadJobs();
 document.getElementById('f_ref').value = refName;
 document.getElementById('f_company').value = coName;
 document.getElementById('f_subject').value = '【校招内推】' + (coName ? coName + ' · ' : '') + '推荐人：' + refName;
-document.getElementById('f_next').value = location.origin + location.pathname + '?success=1';
-
-// formsubmit 提交成功后回跳带 ?success=1，显示成功提示并隐藏表单
-if (params.get('success') === '1') {
-  document.getElementById('f').style.display = 'none';
-  const ok = document.createElement('div');
-  ok.className = 'ok';
-  ok.innerHTML = '✅ 提交成功！<br>HR 会尽快查看您的简历，感谢您的投递。';
-  document.querySelector('.box').appendChild(ok);
-}
 
 const form = document.getElementById('f');
+const submitBtn = document.getElementById('submitBtn');
 
-// 提交：浏览器原生直连 formsubmit 的隐形别名，由它把简历发到 HR 邮箱
-// （源码里只有别名、没有任何邮箱，候选人查看网页源码或爬仓库都拿不到真实邮箱）
-form.addEventListener('submit', function(){
-  form.action = CONFIG.FORM_ENDPOINT;
-  form.method = 'POST';
-  form.enctype = 'multipart/form-data';
-  // 不调用 preventDefault，放行原生提交
+// 提交：用 FormSubmit 的 /ajax/ 通道，浏览器直连、提交后停留在当前页，
+// 不再跳转 FormSubmit 的页面（避免手机上弹出 formsubmit 品牌页），由本页显示成功提示。
+// 源码里只有隐形别名、没有任何邮箱，候选人查看网页源码或爬仓库都拿不到真实邮箱。
+form.addEventListener('submit', async function(e){
+  e.preventDefault();
+  submitBtn.disabled = true;
+  submitBtn.textContent = '提交中…';
+  try {
+    const res = await fetch(CONFIG.FORM_ENDPOINT_AJAX, {
+      method: 'POST',
+      body: new FormData(form)
+    });
+    let data = {};
+    try { data = await res.json(); } catch(_) {}
+    if (res.ok && data.success) {
+      form.style.display = 'none';
+      const ok = document.createElement('div');
+      ok.className = 'ok';
+      ok.innerHTML = '✅ 提交成功！<br>HR 会尽快查看您的简历，感谢您的投递。';
+      document.querySelector('.box').appendChild(ok);
+    } else {
+      throw new Error((data.message) || ('提交失败（HTTP ' + res.status + '）'));
+    }
+  } catch (err) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = '提交简历';
+    alert('提交失败：' + err.message + '\n请检查网络后重试，或联系推荐人。');
+  }
 });
 </script>
 </body>
