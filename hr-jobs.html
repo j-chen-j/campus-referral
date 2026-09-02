@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>校招内推 · 岗位管理</title>
+<style>
+  :root { --bg:#f5f7fa; --card:#fff; --primary:#2563eb; --primary-d:#1d4ed8; --danger:#dc2626; --muted:#6b7280; --line:#e5e7eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif; background:var(--bg); color:#111; }
+  .wrap { max-width:720px; margin:24px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 18px; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+  .row input { flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:9px; font-size:15px; }
+  .row input:focus { outline:none; border-color:var(--primary); }
+  .btn { border:none; border-radius:9px; padding:9px 14px; font-size:14px; cursor:pointer; transition:.15s; white-space:nowrap; }
+  .btn-add { background:var(--primary); color:#fff; }
+  .btn-add:hover { background:var(--primary-d); }
+  .btn-del { background:#fee2e2; color:var(--danger); }
+  .btn-up, .btn-down { background:#eef2ff; color:var(--primary); padding:6px 10px; font-size:12px; }
+  .actions { margin-top:18px; display:flex; gap:10px; align-items:center; }
+  .btn-save { background:var(--primary); color:#fff; font-size:15px; padding:11px 22px; }
+  .btn-save:hover { background:var(--primary-d); }
+  .btn-save:disabled { opacity:.6; cursor:default; }
+  .btn-token { background:#f1f5f9; color:#334155; font-size:13px; padding:6px 12px; }
+  .status { font-size:13px; margin-left:6px; }
+  .ok { color:#16a34a; } .err { color:var(--danger); } .busy { color:var(--muted); }
+  .tokenbar { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:14px; }
+  .hint { font-size:12px; color:var(--muted); line-height:1.6; margin-top:16px; border-top:1px dashed var(--line); padding-top:12px; }
+  code { background:#f1f5f9; padding:1px 5px; border-radius:4px; font-size:12px; }
+  .count { font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>校招内推 · 岗位管理</h1>
+    <p class="sub">在这里增删 / 调整岗位顺序，保存后约 1 分钟所有招聘二维码自动更新。</p>
+
+    <div class="tokenbar">
+      <span id="tokenState">令牌：未设置</span>
+      <button class="btn btn-token" onclick="setupToken()">设置 / 更换令牌</button>
+    </div>
+
+    <div id="list"></div>
+    <div class="row">
+      <input id="newJob" placeholder="输入新岗位名，例如：数据分析师" />
+      <button class="btn btn-add" onclick="addJob()">+ 添加</button>
+    </div>
+    <div class="actions">
+      <button class="btn btn-save" id="saveBtn" onclick="saveJobs()">保存并生效</button>
+      <span class="status" id="status"></span>
+    </div>
+    <div class="hint">
+      <b>使用说明</b><br>
+      1. 首次打开点「设置 / 更换令牌」，粘贴一枚只授权本仓库的 GitHub 令牌（只在你本机浏览器保存，<b>不会写入任何文件、不会上传 GitHub</b>）；<br>
+      2. 在上方增删岗位、用 ↑↓ 调整顺序；<br>
+      3. 点「保存并生效」即写入招聘系统，候选人刷新二维码即可看到；<br>
+      4. 本页仅作岗位管理，<b>不含任何邮箱信息</b>；候选人投递邮箱由投递页统一处理。
+    </div>
+  </div>
+</div>
+
+<script>
+// ====== 配置区（不含任何密钥，仓库名本就公开） ======
+const REPO_OWNER = "j-chen-j";
+const REPO_NAME  = "campus-referral";
+const FILE_PATH  = "jobs.json";
+const BRANCH     = "main";
+// 令牌只存于 HR 本机浏览器的 localStorage，源码与 GitHub 仓库中永远不出现。
+const TOKEN_KEY  = "campus_referral_gh_token";
+// 读取走公开 raw 地址（免 token、免限流）；写入走 API（需 token）
+const RAW_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/${FILE_PATH}`;
+const API_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`;
+// ===================================================
+
+let jobs = [];
+
+function getToken(){ try { return localStorage.getItem(TOKEN_KEY) || ""; } catch(e){ return ""; } }
+function setToken(t){ try { localStorage.setItem(TOKEN_KEY, t); } catch(e){} refreshTokenState(); }
+function refreshTokenState(){
+  const t = getToken();
+  const el = document.getElementById('tokenState');
+  el.textContent = t ? `令牌：已设置（${t.slice(0,4)}…${t.slice(-4)}）` : "令牌：未设置";
+}
+
+function setupToken(){
+  const cur = getToken();
+  const input = prompt("粘贴 GitHub 令牌（仅本机保存，不会写入文件或上传）：\n生成方式：GitHub 头像 → Settings → Developer settings → Fine-grained tokens → 仅授权 campus-referral 仓库 Contents: Read and write", cur);
+  if (input && input.trim()) setToken(input.trim());
+  else if (input !== null) setStatus("未输入令牌", "err");
+}
+
+function render() {
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+  jobs.forEach((job, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `
+      <input value="${escapeHtml(job)}" onchange="jobs[${i}]=this.value" />
+      <button class="btn btn-up"   onclick="move(${i},-1)">↑</button>
+      <button class="btn btn-down" onclick="move(${i},1)">↓</button>
+      <button class="btn btn-del"  onclick="del(${i})">删除</button>`;
+    list.appendChild(row);
+  });
+  document.getElementById('status').className = 'status';
+  document.getElementById('status').textContent = `当前共 ${jobs.length} 个岗位`;
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function addJob() {
+  const inp = document.getElementById('newJob');
+  const v = inp.value.trim();
+  if (!v) return;
+  jobs.push(v); inp.value = ''; render();
+}
+function del(i){ jobs.splice(i,1); render(); }
+function move(i,d){ const j=i+d; if(j<0||j>=jobs.length) return; [jobs[i],jobs[j]]=[jobs[j],jobs[i]]; render(); }
+
+async function loadJobs() {
+  try {
+    const r = await fetch(RAW_URL, { cache:'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      if (Array.isArray(j.JOBS)) { jobs = j.JOBS; render(); return; }
+    }
+  } catch(e){ /* 离线或网络异常，用空列表兜底 */ }
+  jobs = []; render();
+}
+
+function setStatus(msg, cls){ const s=document.getElementById('status'); s.textContent=msg; s.className='status '+cls; }
+
+async function saveJobs() {
+  const token = getToken();
+  if (!token) { setStatus('请先点「设置 / 更换令牌」', 'err'); setupToken(); return; }
+  const clean = jobs.map(j=>j.trim()).filter(Boolean);
+  if (clean.length === 0) { setStatus('请至少保留一个岗位', 'err'); return; }
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true; setStatus('保存中…', 'busy');
+  try {
+    // 取当前文件 sha（用于更新）
+    const head = await fetch(API_URL, { headers:{ 'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json' }});
+    let sha = null;
+    if (head.ok) sha = (await head.json()).sha;
+    const content = b64EncodeUnicode(JSON.stringify({ JOBS: clean }, null, 2) + "\n");
+    const body = { message:"chore: HR 更新岗位列表", content, branch: BRANCH };
+    if (sha) body.sha = sha;
+    const res = await fetch(API_URL, {
+      method:'PUT',
+      headers:{ 'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json', 'Content-Type':'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (res.ok) { setStatus('✅ 已保存，约 1 分钟后生效', 'ok'); jobs = clean; render(); }
+    else { const t = await res.text(); setStatus('❌ 保存失败：' + res.status + ' ' + t.slice(0,120), 'err'); }
+  } catch(e) {
+    setStatus('❌ 网络错误：' + e.message, 'err');
+  } finally { btn.disabled = false; }
+}
+
+// UTF-8 安全的 base64 编码
+function b64EncodeUnicode(str){
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
+refreshTokenState();
+loadJobs();
+</script>
+</body>
+</html>

@@ -93,7 +93,9 @@ const CONFIG = {
   //    候选人查看网页源码 / 爬 GitHub 仓库都拿不到 HR 真实邮箱。
   //    该别名与域名 https://j-chen-j.github.io/ 绑定。
   FORM_ENDPOINT: 'https://formsubmit.co/87e9cdbe54d0c84eb58faf9012bb7ac8',
-  JOBS: ['Java开发工程师', '前端开发工程师', '产品经理', '测试工程师'], // ← 岗位列表（也可由 jobs.json 实时覆盖）
+  // 岗位数据由 HR 在「腾讯文档」在线表格里维护，经 GitHub Actions 定时同步到本仓库 jobs.json。
+  // 投递页每次打开实时拉取 jobs.json（带时间戳防缓存），HR 改完约 10 分钟全局生效。
+  JOBS: ['Java开发工程师', '前端开发工程师', '产品经理', '测试工程师'], // ← 同步失败时的兜底
 };
 
 // 从链接读取推荐人与公司
@@ -103,7 +105,7 @@ const coName  = params.get('co') || '';
 document.getElementById('refName').textContent = refName;
 document.getElementById('co').textContent = coName ? (coName + ' · 校招内推') : '校招内推';
 
-// 渲染岗位下拉框（优先实时拉取 jobs.json，失败再回退内联配置，确保已生成的旧二维码也能实时生效）
+// 渲染岗位下拉框（实时拉取仓库 jobs.json，HR 在腾讯文档改完经 GitHub Actions 自动同步；失败回退内联配置）
 const jobSelect = document.getElementById('jobSelect');
 async function loadJobs(){
   let list = CONFIG.JOBS;
@@ -113,7 +115,7 @@ async function loadJobs(){
       const j = await r.json();
       if (Array.isArray(j.JOBS) && j.JOBS.length) list = j.JOBS;
     }
-  } catch (e) { /* 网络/本地打开失败时用内联配置兜底 */ }
+  } catch (e) { /* 网络失败时回退内联配置兜底 */ }
   if (Array.isArray(list) && list.length) {
     list.forEach(function(j){
       const opt = document.createElement('option');

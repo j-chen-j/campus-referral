@@ -5,15 +5,17 @@
 ## 已部署的服务
 - 投递页（候选人扫二维码打开）：https://j-chen-j.github.io/campus-referral/apply.html
 - 收件方式：候选人浏览器**直连 formsubmit.co 的「隐形邮箱别名」**提交，由 formsubmit 转发到 HR 邮箱。**投递页源码与 GitHub 仓库里只有别名、没有任何邮箱**，候选人查看网页源代码或爬仓库都拿不到 HR 真实邮箱。
-- 岗位列表独立存放在仓库根目录的 **`jobs.json`**，投递页每次打开实时拉取，所有二维码共享，**改一次全局实时生效**
+- 岗位列表独立成 `jobs.json` 放在仓库根目录，投递页每次打开实时拉取，所有二维码共享，**改一次全局实时生效**；HR 用 `hr-jobs.html`（Edge 双击打开）自助改，**GitHub 令牌仅在 HR 本机浏览器保存，不写入源码、不上传 GitHub**（详见下文「HR 改岗位」）。
 
-## 四个文件怎么用
+## 文件怎么用
 | 文件 | 用途 | 谁用 |
 |---|---|---|
 | `generator.html` | 生成内推二维码（离线单文件，自带台账记录） | HR |
-| `admin.html` | 可视化增删岗位，一键写回 `jobs.json` | HR |
+| `hr-jobs.html` | **HR 改岗位**（Edge 双击即用；令牌仅存本机浏览器，不进源码/不传 GitHub） | HR ★ |
 | `apply.html` | 候选人投递页（已部署到 GitHub Pages，实时拉取 `jobs.json`） | 候选人（扫码自动打开） |
-| `jobs.json` | 岗位数据源（唯一权威，HR 改岗位只动它） | 系统自动读取 |
+| `jobs.json` | 岗位数据源（唯一权威，改岗位只动它；投递页实时拉取） | 系统自动读取 |
+| `admin.html` | 备用改岗位页（直接调 GitHub API，需 token） | 管理员 |
+| `cloudflare-worker.js` | 备用方案遗留（当前岗位管理走 `hr-jobs.html` 直连 GitHub，已不依赖 Cloudflare） | 可保留可删 |
 
 ## HR 生成二维码（generator.html）
 1. 双击 `generator.html`（断网也能用，已内联二维码/打包库，无需额外文件夹）。
@@ -33,17 +35,44 @@
 
 > 记录存在 HR 所用浏览器的本地数据库（IndexedDB），**断网可用、不上传任何服务器**。注意：不同浏览器/电脑之间不共享，需靠「导出/导入」迁移；清浏览器数据会丢失（导出可防丢）。
 
-## HR 管理岗位（admin.html，对接 GitHub）
-岗位统一存放在仓库的 **`jobs.json`**，改一处所有二维码实时更新。不用碰代码：
+## HR 管理岗位（hr-jobs.html，★ 推荐给 HR 用）
+**HR 电脑上没有 GitHub 账号、也没有本地代码文件时，用这个。** 双击 `hr-jobs.html` 即可改岗位，
+不需要 GitHub 账号、不需要 token、不需要本地服务——只需能上网。
+
+1. 双击 `hr-jobs.html`（服务地址一般已预填好，不用改）。
+2. 点「读取当前岗位」→ 列出当前所有岗位。
+3. 改文字 / ↑↓ 调整顺序 / ✕ 删除 / ＋ 添加。
+4. 点「保存并生效」→ 约 30 秒后所有二维码（含已打印的旧码）自动显示新岗位。
+
+**原理**：页面把改动发到 Cloudflare Worker，由 Worker 读写背后的 **Cloudflare KV 存储**（岗位列表就存在这里）。
+整套链路**完全不需要 GitHub Token、不用填任何密钥**——你只需要在 Cloudflare 后台建一个 KV 命名空间并绑给 Worker 即可。
+
+### Worker 侧部署（一次性，管理员做）
+1. Cloudflare → **Workers & Pages** → 你的 Worker（如 `old-brook-e3b5`）→ **Edit code**。
+2. 把 `cloudflare-worker.js` 内容**全部替换**进去 → **Deploy**（先把代码部署上）。
+3. 创建并绑定 KV 命名空间（**不需要任何密钥/Token**）：
+   - 左侧菜单 **KV** → **Create a namespace** → 随便起名（如 `referral-jobs`）→ Create。
+   - 回到 Worker → **Settings → Variables** → **KV namespace bindings** → Add binding：
+     - Variable name 填 **`JOBS_KV`**（必须一模一样，代码里就读这个名）
+     - KV namespace 选刚才建的 `referral-jobs`
+   - **Save**。
+4. 回到 **Deployments** 再点一次 **Deploy**（绑定 KV 后必须重新部署才生效，这是 Cloudflare 的坑）。
+
+> 部署后第一次点「读取当前岗位」会看到内置的 4 个默认岗位；HR 改完点「保存」即写入 KV，之后所有二维码实时生效。
+> 想换岗位数据不丢，KV 命名空间一直在，Worker 重新部署也不影响已有数据。
+
+## 备用方案：admin.html（需 GitHub Token，管理员自己用）
+岗位统一存放在仓库的 **`jobs.json`**，改一处所有二维码实时更新：
 1. 双击 `admin.html`。
 2. 粘贴 GitHub Token（详见下方「凭证管理」）。
-3. 点「加载岗位」→ 看到当前岗位列表，可改文字 / ↑↓ 排序 / ✕ 删除 / + 添加。
-4. 点「保存并更新到 GitHub」→ 自动写回仓库 `jobs.json`，GitHub Pages 约 30 秒重建，旧二维码自动显示新岗位。
+3. 点「加载岗位」→ 可改文字 / ↑↓ 排序 / ✕ 删除 / + 添加。
+4. 点「保存并更新到 GitHub」→ 自动写回 `jobs.json`，约 30 秒后旧二维码自动显示新岗位。
 
-> `admin.html` 只在你本地运行，不会上传任何第三方；岗位通过 GitHub API 直接写入仓库 `jobs.json`。
+> `admin.html` 只在你本地运行，不会上传任何第三方；它直接调 GitHub API，所以**用的人必须有 token**。
+> 给 HR 用请优先用上面的 `hr-jobs.html`。
 
 ## 为什么旧二维码改完也能实时更新（架构说明）
-岗位列表**不再写死在 `apply.html` 里**，而是独立成 `jobs.json`；`apply.html` 打开时用 `fetch('jobs.json?t=时间戳')` 强制不带缓存地实时拉取，并加了 `no-cache` 等防缓存头。
+岗位列表**不再写死在 `apply.html` 里**，而是存在 Cloudflare KV（经 Worker 暴露 `GET /jobs`）；`apply.html` 打开时用 `fetch(WORKER_URL + '/jobs')` 实时拉取，并加了 `no-cache` 等防缓存头。
 - 因此候选人（含微信内置浏览器）扫**任意一张已生成的旧二维码**，打开的永远是线上最新岗位。
 - 之前“改了岗位但旧码不变”的根因正是：岗位写死在 HTML 内、被微信整页缓存。改成数据分离后该问题消除。
 - 若微信仍显示旧岗位，多半是 HTML 本身被缓存：长按页面「刷新」一次即可，之后即实时。
@@ -124,7 +153,15 @@ HR 邮箱**不写在 `apply.html` 里**，只通过 formsubmit 的别名间接�
 
 ## 文件说明
 - `generator.html` 主程序（离线单文件，二维码/打包库已内联）
-- `admin.html` 岗位管理页（本地 + GitHub API，兼容 classic 与 fine-grained Token，写 `jobs.json`）
+- `hr-jobs.html` **HR 改岗位页**（Edge 双击即用；改动直连 GitHub 写回 `jobs.json`，**令牌仅存 HR 本机浏览器，不进源码/不上传**）
 - `apply.html` 投递页源码（已部署，运行时实时拉取 `jobs.json`，直连 formsubmit 别名提交）
-- `jobs.json` 岗位数据源（唯一权威，HR 改岗位只动它）
-- `cloudflare-worker.js` **备选**服务端转发方案（当前未启用；因 formsubmit 对机房 IP 限流，已改用直连别名方案）
+- `jobs.json` 岗位数据源（唯一权威，改岗位只动它）
+- `admin.html` 备用改岗位页（本地 + GitHub API，需 token，管理员自用）
+- `cloudflare-worker.js` 岗位管理 API（读写 Cloudflare KV，**不需要 GitHub Token**；**不再**用于简历转发，
+  简历已改为候选人浏览器直连 formsubmit 别名，避开其机房 IP 限流）
+
+## 两套链路（别混淆）
+| 链路 | 走哪 | 说明 |
+|---|---|---|
+| **简历投递** | 候选人浏览器 → **formsubmit 别名** → HR 邮箱 | 不经 Worker（Worker 机房 IP 会被 formsubmit 限流 429） |
+| **改岗位** | HR 浏览器 → `hr-jobs.html` → GitHub `jobs.json`（令牌仅存本机浏览器） | 不经 formsubmit；令牌不出现在源码或仓库 |
