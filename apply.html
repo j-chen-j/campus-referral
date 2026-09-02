@@ -44,34 +44,35 @@
 
   <form id="f" action="https://formsubmit.co/87e9cdbe54d0c84eb58faf9012bb7ac8" method="POST" enctype="multipart/form-data">
     <label>您的姓名 <span class="req">*</span></label>
-    <input type="text" name="candidate" required placeholder="请输入您的姓名">
+    <input type="text" name="姓名" required placeholder="请输入您的姓名">
 
     <label>意向岗位 <span class="req">*</span></label>
-    <select name="job" required id="jobSelect">
+    <select name="意向岗位" required id="jobSelect">
       <option value="">请选择岗位</option>
     </select>
 
     <label>您的邮箱 <span class="req">*</span> <span style="font-weight:400;color:var(--sub)">（用于 HR 回复联系）</span></label>
-    <input type="email" name="email" required placeholder="name@example.com">
+    <input type="email" name="邮箱" required placeholder="name@example.com" id="inputEmail">
 
     <label>手机号</label>
-    <input type="tel" name="phone" placeholder="选填">
+    <input type="tel" name="手机号" placeholder="选填">
 
     <label>简历附件 <span class="req">*</span> <span style="font-weight:400;color:var(--sub)">（PDF/Word，≤10MB）</span></label>
-    <input type="file" name="resume" required accept=".pdf,.doc,.docx">
+    <input type="file" name="简历附件" required accept=".pdf,.doc,.docx" id="inputResume">
 
     <label>备注</label>
-    <textarea name="note" rows="3" placeholder="选填，如意向岗位、城市等"></textarea>
+    <textarea name="备注" rows="3" placeholder="选填，如意向岗位、城市等"></textarea>
 
     <!-- formsubmit 原生提交；_next 让提交成功后自动跳回本页显示成功提示 -->
     <input type="hidden" name="_subject" id="f_subject">
     <input type="hidden" name="_next" id="f_next">
-    <input type="hidden" name="ref" id="f_ref">
-    <input type="hidden" name="company" id="f_company">
+    <input type="hidden" name="_replyto" id="f_replyto">
+    <input type="hidden" name="推荐人" id="f_ref">
+    <input type="hidden" name="公司" id="f_company">
 
     <button type="submit" id="submitBtn">提交简历</button>
   </form>
-  <p class="tip">提交后简历会直接发送到 HR 邮箱，推荐人信息已自动带入。<br>若微信提示「将要访问 formsubmit.co」，请点击「继续访问」，提交成功后会自动返回本页。</p>
+  <p class="tip">提交后简历会直接发送到 HR 邮箱，推荐人信息已自动带入。<br>若微信/QQ提示「将要访问 formsubmit.co」，请点击「继续访问」，提交成功后会自动返回本页。<br><span style="color:var(--err)">建议使用系统浏览器（Edge/Chrome/Safari）上传简历，微信内置浏览器可能无法携带附件。</span></p>
 </div>
 
 <script>
@@ -94,6 +95,7 @@ const CONFIG = {
   FORM_ENDPOINT: 'https://formsubmit.co/87e9cdbe54d0c84eb58faf9012bb7ac8',
   // 岗位数据由 HR 在 hr-jobs.html（Edge 双击即用）直接写回本仓库 jobs.json。
   // 投递页每次打开实时拉取 jobs.json（带时间戳防缓存），HR 保存后约 1 分钟全局生效。
+  // 表单字段 name 使用中文，formsubmit 邮件里会显示中文标签。
   JOBS: ['Java开发工程师', '前端开发工程师', '产品经理', '测试工程师'], // ← 拉取失败时的兜底
 };
 
@@ -129,7 +131,7 @@ async function loadJobs(){
 }
 loadJobs();
 
-// 预填隐藏字段（推荐人 / 公司 / 邮件主题 / 回跳地址）
+// 预填隐藏字段（推荐人 / 公司 / 邮件主题 / 回跳地址 / 回复地址）
 document.getElementById('f_ref').value = refName;
 document.getElementById('f_company').value = coName;
 document.getElementById('f_subject').value = '【校招内推】' + (coName ? coName + ' · ' : '') + '推荐人：' + refName;
@@ -138,6 +140,23 @@ document.getElementById('f_subject').value = '【校招内推】' + (coName ? co
 const nextUrl = new URL(location.href);
 nextUrl.searchParams.set('success', '1');
 document.getElementById('f_next').value = nextUrl.toString();
+
+// 附件大小校验：formsubmit 免费版要求单个提交总大小 ≤10MB
+const resumeInput = document.getElementById('inputResume');
+const emailInput = document.getElementById('inputEmail');
+const formEl = document.getElementById('f');
+formEl.addEventListener('submit', function(e){
+  const file = resumeInput.files[0];
+  if (file && file.size > 10 * 1024 * 1024) {
+    alert('简历附件过大（超过 10MB），请压缩后重新上传。');
+    e.preventDefault();
+    return;
+  }
+  // 把候选人邮箱设为回复地址，方便 HR 一键回复
+  document.getElementById('f_replyto').value = emailInput.value || '';
+  document.getElementById('submitBtn').textContent = '提交中…';
+  document.getElementById('submitBtn').disabled = true;
+});
 
 // formsubmit 回跳带 ?success=1，显示成功提示并隐藏表单
 if (params.get('success') === '1') {
