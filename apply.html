@@ -59,7 +59,7 @@
     <label>手机号</label>
     <input type="tel" name="手机号" placeholder="选填">
 
-    <label>简历附件 <span class="req">*</span> <span style="font-weight:400;color:var(--sub)">（PDF/Word，≤6MB）</span></label>
+    <label>简历附件 <span class="req">*</span> <span style="font-weight:400;color:var(--sub)">（PDF/Word，≤4MB）</span></label>
     <input type="file" name="简历附件" required accept=".pdf,.doc,.docx" id="inputResume">
 
     <label>备注</label>
@@ -70,7 +70,7 @@
 
     <button type="submit" id="submitBtn">提交简历</button>
   </form>
-  <p class="tip">提交后简历会直接发送到 HR 邮箱，推荐人信息已自动带入。<br>上传简历请保持 PDF 文件大小在 6MB 以内。</p>
+  <p class="tip">提交后简历会直接发送到 HR 邮箱，推荐人信息已自动带入。<br>上传简历请保持 PDF 文件大小在 4MB 以内。</p>
 </div>
 
 <script>
@@ -125,19 +125,37 @@ const resumeInput = document.getElementById('inputResume');
 form.addEventListener('submit', async function(e){
   e.preventDefault();
   const file = resumeInput.files[0];
-  if (file && file.size > 6 * 1024 * 1024) {
-    alert('简历附件过大（超过 6MB），请压缩后重新上传。');
+  if (!file) {
+    alert('请先选择简历附件');
+    return;
+  }
+  // 4MB 上限：文件经 base64 后体积约膨胀 33%，需为 SCF 6MB 请求体限制留足余量
+  if (file.size > 4 * 1024 * 1024) {
+    alert('简历附件过大（超过 4MB），请压缩后重新上传。');
     return;
   }
 
   submitBtn.disabled = true;
   submitBtn.textContent = '提交中…';
 
-  const data = new FormData(form);
   try {
+    // 文件转为 base64 文本后再发送：整个请求体都是 ASCII，
+    // 彻底避免二进制被网关 / 函数 URL 当作字符串处理而损坏（此前 PDF 空白的根因）。
+    const b64 = await fileToBase64(file);
+    const fields = {};
+    new FormData(form).forEach(function(v, k){
+      if (k !== '简历附件') fields[k] = v;
+    });
+    const payload = {
+      type: 'apply',
+      fields: fields,
+      file_name: file.name,
+      file_b64: b64.split(',')[1] || b64,
+    };
     const res = await fetch(CONFIG.ENDPOINT, {
       method: 'POST',
-      body: data,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
     let result = {};
     try { result = await res.json(); } catch(_) {}
@@ -162,6 +180,15 @@ form.addEventListener('submit', async function(e){
     box.appendChild(errBox);
   }
 });
+
+function fileToBase64(file){
+  return new Promise(function(resolve, reject){
+    const r = new FileReader();
+    r.onload = function(){ resolve(r.result); };
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
 </script>
 </body>
 </html>
